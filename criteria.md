@@ -42,63 +42,97 @@ Two things worth knowing before you pick numbers:
   a **miss**.
 
 ---
-## 1.
 
-<!-- Your criterion. It must name a number. -->
+> **Authorship note (disclosed in the README's "How I Used AI").** The targets
+> below are my choices: I picked the false-positive rate (at most 2 in 10),
+> the score spread (0.30), the bad-input rule (400 and logged, never a 500),
+> and the areas covered. The exact wording and the "why" paragraphs were
+> drafted by an AI assistant from those choices, before any of the code
+> existed. I reviewed them and they are my standard. Written and committed
+> BEFORE the service was built, so no result could have shaped them.
 
-
-
-**Why this target:**
-
-
-
----
-
-## 2.
-
-<!-- Your criterion. -->
-
-
-
-**Why this target:**
-
-
+Every criterion is checked **across three trials** of the same inputs, and the
+target has to hold in all three (the first signal is a model, so the same text
+can score slightly differently twice).
 
 ---
 
-## 3.
+## 1. False positives: at most 2 in 10 human pieces called AI
 
-<!-- Your criterion. -->
+Of 10 pieces of plain, ordinary writing by real people (not formal, not
+polished by a tool), **at most 2** may receive the *high-confidence AI* label.
+This must hold in **each** of three trials of the same ten pieces.
 
-
-
-**Why this target:**
-
-
-
----
-
-## 4.
-
-<!-- Your criterion. -->
-
-
-
-**Why this target:**
-
-
+**Why this target:** Accusing a real writer is the expensive mistake. They lose
+trust and may lose the work. Missing a piece of AI text costs the site very
+little. 2 in 10 is looser than I'd like and I know it: both of my signals are
+weak (a small local model and a count of sentence shapes), and plain human
+writing is exactly the kind they misread. I'm choosing a number I can honestly
+hit and then checking it, rather than a 0-in-10 I would miss. The unsure band
+and the appeal path are what make even this rate bearable, because a writer who
+is wrongly flagged can answer back.
 
 ---
 
-## 5.
+## 2. Score spread: clearly-AI and clearly-human text score at least 0.30 apart
 
-<!-- Your criterion. -->
+Take 5 pieces I'm sure are AI-written and 5 I'm sure are human-written. The
+**average combined score** of the AI set minus the average of the human set
+must be **at least 0.30**, in each of three trials.
 
+**Why this target:** If the two groups barely differ, the score is noise and the
+labels mean nothing. 0.30 is about the width of the "unsure" band, so it means
+the two groups at least land in different regions. It is deliberately not 0.50:
+two weak signals averaged will not give a huge gap, and a target I can't
+plausibly reach tells me nothing.
 
+---
 
-**Why this target:**
+## 3. Bad input: nothing crashes, everything refused is logged
 
+Send `/submit` six bad requests: (a) no `text` field, (b) `text` is empty,
+(c) `text` is only spaces, (d) `text` is a number instead of a string,
+(e) no `creator_id`, (f) `text` of 50,000 characters. **All six** must return
+HTTP 400 (413 for the oversized one) with a JSON body containing an `error`
+field, **none** may return a 500, and **each** must leave a `rejected` entry in
+`logs/audit.jsonl`. 6 of 6, in all three trials.
 
+**Why this target:** A crash on malformed input is one of the most common real
+failures, and a refusal that leaves no trace looks the same as a quiet
+afternoon. "Never a 500" is something anyone can check by running six curl
+commands. The log requirement is there because next unit I need to be able to
+see what was thrown at the service.
+
+---
+
+## 4. Label coverage: all three labels are reachable, and the score actually matters
+
+(a) Across 10 varied submissions (AI, human, plain, formal, edited AI), **each
+of the three labels appears at least once.** (b) Sweeping every score from 0.00
+to 1.00 in steps of 0.01 through `score_to_label` produces **no gap and no
+error**, and a score of **0.51 and a score of 0.95 produce different labels**.
+
+**Why this target:** A label nobody can ever see is dead code, and a system
+that flips at 0.5 isn't expressing confidence at all. Part (b) can be checked
+without the model, so it can't pass by luck. Part (a) catches the more
+likely failure: ranges that look fine on paper but a combined score that never
+actually leaves the middle.
+
+---
+
+## 5. Appeal path: every appeal changes status and is recorded
+
+For 5 submissions, send an appeal on each real `content_id`. **All 5** must
+return HTTP 200 with `status: "under_review"`, and `GET /log` must then show,
+for each one, an appeal entry holding the writer's exact reasoning **and** the
+original decision entry still present and unchanged. An appeal on a
+`content_id` that doesn't exist must return 404 and write no appeal entry.
+5 of 5, in all three trials.
+
+**Why this target:** The appeal is the only thing standing between a wrong
+accusation and nothing at all, so it is the one path that should have no
+failures. 5 of 5 isn't generous, it's the baseline: an appeal that sometimes
+vanishes is worse than no appeal, because the writer thinks someone is looking.
 
 ---
 
