@@ -4,7 +4,7 @@
 > false-positive rate (at most 2 in 10), the score spread (0.30), the bad-input
 > rule (a 400 or 413 and logged, never a 500), and which areas to cover. The
 > exact wording and the "why" paragraphs were drafted by an AI assistant from
-> those choices. All five were written and committed before the service was
+> those choices. I reviewed them and they are my standard. All five were written and committed before the service was
 > built, so no result could have shaped them.
 
 Five criteria that say what "working" means for this service, written in unit 7
