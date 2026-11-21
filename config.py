@@ -53,6 +53,9 @@ DETECTOR_MAX_TOKENS = 400
 # Anything longer is refused with a 413 instead of being silently cut.
 MAX_TEXT_CHARS = 20_000
 
+# The longest explanation an appeal may carry, in characters.
+MAX_REASONING_CHARS = 5_000
+
 
 # ─── Scoring (Milestone 4) ───────────────────────────────────────────────────
 # How much each signal counts toward the combined score.
@@ -63,6 +66,13 @@ MAX_TEXT_CHARS = 20_000
 
 WEIGHT_MODEL_SIGNAL = 0.5
 WEIGHT_STYLE_SIGNAL = 0.5
+
+# The disagreement guard (see scoring.py::combine_signals). If the two signals
+# are further apart than DISAGREEMENT_GAP, the combined score is not allowed to
+# go above DISAGREEMENT_CAP. Keep DISAGREEMENT_CAP below AI_THRESHOLD: that is
+# what stops a split decision from ever producing a high-confidence AI label.
+DISAGREEMENT_GAP = 0.30
+DISAGREEMENT_CAP = 0.60
 
 
 # ─── Thresholds (Milestone 5) ────────────────────────────────────────────────
@@ -78,7 +88,7 @@ WEIGHT_STYLE_SIGNAL = 0.5
 # getting through. There is no setting that avoids the trade — only settings
 # that decide who pays for it.
 
-HUMAN_THRESHOLD = 0.35
+HUMAN_THRESHOLD = 0.40
 AI_THRESHOLD = 0.65
 
 # ⚠️ One thing that catches people out in Milestone 5. A weighted average can
