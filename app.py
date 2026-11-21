@@ -24,6 +24,7 @@ Routes:
     GET  /health      is the service up, and is the model loaded
 """
 
+import re
 import uuid
 
 from flask import Flask, jsonify, request
@@ -246,6 +247,18 @@ def submit():
     })
 
 
+def _count_words(text):
+    """
+    How many real words are in the text.
+
+    A "word" is a run of letters (any alphabet), so digits, punctuation, emoji
+    and control characters are not counted. `[^\\W\\d_]+` means "one or more
+    characters that are word characters but not digits or underscores", which
+    leaves letters.
+    """
+    return len(re.findall(r"[^\W\d_]+", text))
+
+
 def _check_input(text, creator_id):
     """
     Decide whether a /submit request is usable.
@@ -267,6 +280,16 @@ def _check_input(text, creator_id):
     # text must have something in it besides spaces
     if not text.strip():
         return ("empty_text", "The text is empty.", 400)
+
+    # text must hold enough real words for the signals to say anything.
+    # (Unit 8 improvement.) Counting runs of letters means junk like only
+    # punctuation, emoji or control characters counts as zero words and is
+    # refused here, instead of reaching the model and being scored "human".
+    if _count_words(text) < config.MIN_WORDS:
+        return ("not_enough_text",
+                f"Please submit at least {config.MIN_WORDS} words of writing. "
+                f"There is too little here for us to judge fairly, so we have "
+                f"not scored it.", 400)
 
     # text must not be enormous
     if len(text) > config.MAX_TEXT_CHARS:

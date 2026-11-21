@@ -53,6 +53,14 @@ DETECTOR_MAX_TOKENS = 400
 # Anything longer is refused with a 413 instead of being silently cut.
 MAX_TEXT_CHARS = 20_000
 
+# The fewest real words /submit will judge (unit 8, Milestone 5: my one
+# improvement). Anything shorter is refused with a 400 instead of being scored,
+# because neither signal can read a handful of words and was answering "human"
+# with false confidence. A "word" here means a run of letters, so punctuation,
+# digits, emoji and control characters do not count. 12 is below my shortest
+# real email (16 words) and above the attack set's 10-word EV08.
+MIN_WORDS = 12
+
 # The longest explanation an appeal may carry, in characters.
 MAX_REASONING_CHARS = 5_000
 
