@@ -1,5 +1,12 @@
 # Acceptance criteria — Provenance Guard
 
+> **AI use disclosure.** The numbers in these criteria are my choices: the
+> false-positive rate (at most 2 in 10), the score spread (0.30), the bad-input
+> rule (a 400 or 413 and logged, never a 500), and which areas to cover. The
+> exact wording and the "why" paragraphs were drafted by an AI assistant from
+> those choices. All five were written and committed before the service was
+> built, so no result could have shaped them.
+
 Five criteria that say what "working" means for this service, written in unit 7
 **before** you built it.
 
@@ -42,14 +49,6 @@ Two things worth knowing before you pick numbers:
   a **miss**.
 
 ---
-
-> **Authorship note (disclosed in the README's "How I Used AI").** The targets
-> below are my choices: I picked the false-positive rate (at most 2 in 10),
-> the score spread (0.30), the bad-input rule (400 and logged, never a 500),
-> and the areas covered. The exact wording and the "why" paragraphs were
-> drafted by an AI assistant from those choices, before any of the code
-> existed. I reviewed them and they are my standard. Written and committed
-> BEFORE the service was built, so no result could have shaped them.
 
 Every criterion is checked **across three trials** of the same inputs, and the
 target has to hold in all three (the first signal is a model, so the same text
