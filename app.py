@@ -279,31 +279,86 @@ def _check_input(text, creator_id):
 @app.post("/appeal")
 def appeal():
     """
-    A writer says you got it wrong. ← TODO — Milestone 5
+    A writer says we got it wrong.
 
     Expects JSON:
         {"content_id": "...", "reasoning": "..."}
 
-    Should:
-      1. Check the content_id actually exists — `audit.entries_for(id)` tells
-         you. A typo here fails silently and looks like a broken endpoint,
-         which is the single most common way this milestone eats an hour.
-      2. Record the appeal with `audit.log_appeal(...)`, which moves the item
-         to `under_review`.
-      3. Confirm to the writer. No automatic re-checking needed.
+    What it does:
+      1. Checks the request is usable (400 if not).
+      2. Checks the content_id really exists in the log (404 if not). A typo
+         here would otherwise fail silently and look like a broken endpoint.
+      3. Records the appeal with audit.log_appeal(), which sets the status to
+         "under_review". The log is append-only, so the original decision stays
+         exactly as it was and the appeal sits after it.
+      4. Confirms to the writer. Nothing is re-checked automatically.
 
     This is the smallest endpoint in the project and the one that matters most
-    to the person on the other end. It's the only thing standing between a
+    to the person on the other end: it is the only thing standing between a
     wrong accusation and nothing at all.
     """
-    payload = request.get_json(silent=True) or {}
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        payload = {}
 
-    # TODO: delete this and build the route.
+    content_id = payload.get("content_id")
+    reasoning = payload.get("reasoning")
+
+    # ── Step 1: is the request usable? ──
+    if not isinstance(content_id, str) or not content_id.strip():
+        audit.log_rejection(creator_id="unknown", reason="appeal_missing_content_id")
+        return jsonify({
+            "error": "missing_content_id",
+            "message": "Please include the content_id you were given.",
+        }), 400
+
+    if not isinstance(reasoning, str) or not reasoning.strip():
+        audit.log_rejection(creator_id="unknown", reason="appeal_missing_reasoning",
+                            content_id=content_id)
+        return jsonify({
+            "error": "missing_reasoning",
+            "message": "Please tell us why you think this was wrong.",
+        }), 400
+
+    if len(reasoning) > config.MAX_REASONING_CHARS:
+        audit.log_rejection(creator_id="unknown", reason="appeal_reasoning_too_long",
+                            content_id=content_id)
+        return jsonify({
+            "error": "reasoning_too_long",
+            "message": f"Please keep your explanation under "
+                       f"{config.MAX_REASONING_CHARS:,} characters.",
+        }), 413
+
+    # ── Step 2: does this content_id exist? ──
+    # An item exists if the log holds a decision for it (a decision entry has
+    # no "event" field; appeals and rejections do).
+    history = audit.entries_for(content_id.strip())
+    decisions = [entry for entry in history if "event" not in entry]
+    if not decisions:
+        audit.log_rejection(creator_id="unknown", reason="appeal_unknown_content_id",
+                            content_id=content_id)
+        return jsonify({
+            "error": "unknown_content_id",
+            "message": "We couldn't find a submission with that content_id. "
+                       "Please check it and try again.",
+        }), 404
+
+    # ── Step 3: record it next to the original decision. ──
+    original = decisions[0]
+    audit.log_appeal(
+        content_id=content_id.strip(),
+        creator_id=original.get("creator_id", "unknown"),
+        reasoning=reasoning.strip(),
+    )
+
+    # ── Step 4: confirm. ──
     return jsonify({
-        "error": "not_implemented",
-        "message": "POST /appeal isn't built yet — see the TODO in app.py.",
-        "you_sent": payload,
-    }), 501
+        "content_id": content_id.strip(),
+        "status": "under_review",
+        "message": "Thank you. Your appeal has been recorded and this piece is "
+                   "now under review. We have not changed anything about your "
+                   "work in the meantime.",
+    })
 
 
 # ── Already works ─────────────────────────────────────────────────────────────
