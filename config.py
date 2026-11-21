@@ -47,6 +47,13 @@ DETECTOR_MODEL = os.getenv("AI201_DETECTOR_MODEL", "gpt2")
 DETECTOR_MAX_TOKENS = 400
 
 
+# ─── Input limits ────────────────────────────────────────────────────────────
+# The longest text /submit will accept, in characters. The model only reads the
+# first ~400 tokens anyway, so a huge upload would just cost memory and time.
+# Anything longer is refused with a 413 instead of being silently cut.
+MAX_TEXT_CHARS = 20_000
+
+
 # ─── Scoring (Milestone 4) ───────────────────────────────────────────────────
 # How much each signal counts toward the combined score.
 #

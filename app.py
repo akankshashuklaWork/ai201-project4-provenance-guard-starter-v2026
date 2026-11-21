@@ -30,6 +30,9 @@ from flask import Flask, jsonify, request
 
 import audit
 import config
+import detector
+import scoring
+import stylometry
 
 app = Flask(__name__)
 
@@ -155,61 +158,122 @@ def health():
 def submit():
     """
     Take a piece of text, decide about it, log the decision, answer.
-    ← TODO — Milestones 3, 4 and 5
 
     Expects JSON:
         {"text": "...", "creator_id": "..."}
 
-    Should return JSON with, at minimum:
+    Returns JSON:
         {"content_id": "...", "guess": "...", "confidence": 0.0, "label": "...",
          "model_score": 0.0, "style_score": 0.0}
 
-    ⚠️ **Both signal scores go in the response, not just the log.** Unit 8's
-    `run_attacks.py` and `run_eval.py` read `model_score` and `style_score`
-    straight off this response and put them in your reports. Leave them out and
-    every row of next unit's evidence says `null` — which is exactly the
-    diagnostic you need to name a stage and a mechanism. You do not want to
-    find that out after running the attack set.
+    `confidence` is the combined score on a 0-1 line: 0.0 means "confidently a
+    person wrote this", 1.0 means "confidently a machine did", and the middle
+    means the system genuinely isn't sure.
 
-    ─────────────────────────────────────────────────────────────────────────
-    Build it in three passes. Do not skip ahead — the ordering is how you tell
-    a broken route from a broken signal.
-
-    **Milestone 3 — the route answers.**
-      1. Return a hardcoded response. Confirm `curl` gets it back before you
-         add any logic at all.
-      2. Then pull `text` and `creator_id` out of the payload.
-      3. Then call ONE signal — `detector.model_signal(text)` — and put the
-         real number in. Leave confidence and label as placeholders.
-      4. Log every submission with `audit.log_decision(...)`. The content_id
-         matters: `/appeal` needs it, and a student who skips it rebuilds this
-         whole flow later.
-
-    **Milestone 4 — the second signal and the score.**
-      5. Add `stylometry.style_signal(text)`.
-      6. Combine them with `scoring.combine_signals(...)`.
-      7. Log BOTH signal scores alongside the combined one, and put them in the
-         response too. Next unit you can't diagnose anything without them.
-
-    **Milestone 5 — the label.**
-      8. `scoring.score_to_label(...)` and put the real label in the response.
-
-    ─────────────────────────────────────────────────────────────────────────
-    Worth deciding early, because unit 8's attack set will decide it for you:
-    what should this do when `text` is missing, empty, or enormous? A crash on
-    a malformed input is one of the most common real failures there is.
+    The steps, in order:
+        1. Check the request is usable (400 / 413 if not, and log the refusal)
+        2. Run signal one (the model) and signal two (the text's shape)
+        3. Combine them into one score
+        4. Turn the score into a guess and a label a person can read
+        5. Write everything to the audit log, then answer
     """
-    payload = request.get_json(silent=True) or {}
+    payload = request.get_json(silent=True)
 
-    # TODO: delete this and build the route.
+    # ── Step 1: refuse bad input politely. Never let it crash into a 500. ──
+    # A body that isn't a JSON object at all (a bare list, a string, nothing)
+    # has no .get(), so we turn it into an empty dict first.
+    if not isinstance(payload, dict):
+        payload = {}
+
+    text = payload.get("text")
+    creator_id = payload.get("creator_id")
+
+    problem = _check_input(text, creator_id)
+    if problem:
+        reason, message, status_code = problem
+        # `creator_id` may be missing or the wrong type, so only log it if it
+        # is a string. "unknown" is clearer than writing a number or null.
+        who = creator_id if isinstance(creator_id, str) and creator_id.strip() else "unknown"
+        audit.log_rejection(creator_id=who, reason=reason)
+        return jsonify({"error": reason, "message": message}), status_code
+
+    text = text.strip()
+
+    # ── Step 2: both signals. ──
+    try:
+        model_score = detector.model_signal(text)
+    except detector.DetectorUnavailable as exc:
+        # The model couldn't load (not downloaded, no disk). That is the
+        # service's problem, not the writer's, so it's a 503.
+        audit.log_rejection(creator_id=creator_id, reason="detector_unavailable")
+        return jsonify({"error": "detector_unavailable", "message": str(exc)}), 503
+    except ValueError as exc:
+        # The detector refuses text that is only a token or two.
+        audit.log_rejection(creator_id=creator_id, reason="text_too_short")
+        return jsonify({"error": "text_too_short", "message": str(exc)}), 400
+
+    style_score = stylometry.style_signal(text)
+
+    # ── Step 3: one number out of two. ──
+    combined_score = round(scoring.combine_signals(model_score, style_score), 4)
+
+    # ── Step 4: the number becomes a guess and a plain-English label. ──
+    guess, label = scoring.score_to_label(combined_score)
+
+    # ── Step 5: log it, then answer. The content_id is how /appeal finds it. ──
+    content_id = uuid.uuid4().hex[:12]
+
+    audit.log_decision(
+        content_id=content_id,
+        creator_id=creator_id,
+        guess=guess,
+        model_score=model_score,
+        style_score=style_score,
+        combined_score=combined_score,
+        label=label,
+        status="decided",
+    )
+
     return jsonify({
-        "error": "not_implemented",
-        "message": "POST /submit isn't built yet — see the TODO in app.py.",
-        "you_sent": {
-            "text_length": len(payload.get("text", "")),
-            "creator_id": payload.get("creator_id"),
-        },
-    }), 501
+        "content_id": content_id,
+        "guess": guess,
+        "confidence": combined_score,
+        "label": label,
+        "model_score": model_score,
+        "style_score": style_score,
+        "status": "decided",
+    })
+
+
+def _check_input(text, creator_id):
+    """
+    Decide whether a /submit request is usable.
+
+    Returns None if it is fine, or (reason, message, http_status) if not.
+    Kept as its own small function so the rules are easy to read in one place.
+    """
+    # creator_id must be a non-empty string
+    if not isinstance(creator_id, str) or not creator_id.strip():
+        return ("missing_creator_id",
+                "Please include a creator_id (a non-empty string).", 400)
+
+    # text must exist and be a string
+    if text is None:
+        return ("missing_text", "Please include the text to check.", 400)
+    if not isinstance(text, str):
+        return ("text_not_a_string", "text must be a string.", 400)
+
+    # text must have something in it besides spaces
+    if not text.strip():
+        return ("empty_text", "The text is empty.", 400)
+
+    # text must not be enormous
+    if len(text) > config.MAX_TEXT_CHARS:
+        return ("text_too_long",
+                f"The text is over {config.MAX_TEXT_CHARS:,} characters. "
+                f"Please submit a shorter piece.", 413)
+
+    return None
 
 
 @app.post("/appeal")
